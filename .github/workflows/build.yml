@@ -1,0 +1,45 @@
+name: build worker image
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # The vLLM base image unpacks to ~20GB — more than a stock runner has
+      # free. Drop the preinstalled toolchains we don't use to make room.
+      - name: Free disk space
+        run: |
+          df -h /
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
+                      /usr/local/share/boost /usr/local/.ghcup
+          df -h /
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: ghcr.io/${{ github.repository_owner }}/worker-vllm-gemma4:v2.25.0-tf5.14.1
+
+      - name: Verify the pin landed
+        run: |
+          docker run --rm --entrypoint python3 \
+            ghcr.io/${{ github.repository_owner }}/worker-vllm-gemma4:v2.25.0-tf5.14.1 \
+            -c "import transformers; print('transformers', transformers.__version__)"
